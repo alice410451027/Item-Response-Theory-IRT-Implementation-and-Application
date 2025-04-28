@@ -1,0 +1,277 @@
+---
+title: "Item Response Theory (IRT) Implementation and Application"
+output: html_document
+date: "2025-04-28"
+---
+Part 1. Classical Test Theory
+The dataset "data.sim.rasch" simulates binary item responses from a Rasch model. 
+這段程式碼用於載入一個模擬的 Rasch 模型測驗作答資料，
+
+Step 1.Examining the structure and content of the dataset to understand its dimensionality (2000 persons × 40 items) and verify its suitability for psychometric analysis.
+總共有 2000 位受試者對40題二元題目的作答結果(1=作答正確，0=作答錯誤)。
+```{r}
+library(TAM)   #讀入 TAM 套件
+data(data.sim.rasch) #從 TAM 套件中抓出名為 data.sim.rasch 的資料集
+head(data.sim.rasch) #列出該資料集頭幾行的資料
+str(data.sim.rasch) #共有2000筆
+```
+
+Step 2.Computing examinees' raw scores (total correct responses) and item mean scores (item easiness indices) as part of classical test theory preprocessing. 
+計算整體表現指標：受試者的總分和每題的易度(即通過率)
+```{r}
+resp <- data.sim.rasch #複製data.sim.rasch資料，並用resp作為新檔名
+scores <- apply(resp,1,sum) #計算每位受試者的總分(作答正確的題數)
+head(scores) #列出頭幾行的得分資料
+itemscores <- apply(resp,2,mean) #計算每題的平均得分(正答率)
+head(itemscores)
+```
+
+Step 3.Discrimination題目鑑別度
+```{r}
+cor(scores,resp[,1]) #第一題的鑑別度=第一題與總分的相關
+```
+
+Step 4.Computing item-total correlations (discrimination indices), adjusting for item overlap by excluding the target item from total scores.
+計算每一題與「去除該題後的總分」之間的相關係數，作為該題的「鑑別度」指標
+```{r}
+cor(scores-resp[,1],resp[,1]) #更精確的鑑別度(避免項目與自己相關)
+```
+
+
+```{r}
+#計算所有題目的鑑別度
+disc <- apply(resp,2,function(x){cor(scores-x,x)})
+disc
+```
+
+#Another Method: CTT
+```{r}
+library(CTT)
+resp <- data.sim.rasch
+IA <- itemAnalysis(resp) #將題目分析結果存入 IA 這一個物件
+IA$itemReport
+IA$alpha #Cronbach's alpha = 0.90
+```
+
+
+```{r}
+data(CTTdata) #資料集
+str(CTTdata) ##資料集:100位樣本、20題題目
+data(CTTkey) #正確答案
+head(CTTdata)
+CTTkey
+```
+
+```{r}
+resp <- score(CTTdata,CTTkey,output.scored = TRUE)
+str(resp)
+resp$scored
+```
+
+```{r}
+scored <- resp$scored   # 取出每題得分（0/1）
+itemAnalysis(scored) #Cronbach's alpha = .83，代表整份測驗有良好的信度
+total_score <- resp$score  # 取出總分
+
+# 計算未修正的鑑別度(item-total correlation)
+item_total_correlation <- cor(scored, total_score)
+round(item_total_correlation,2)
+
+# 計算修正後的鑑別度（corrected item-total correlation）
+disc <- apply(scored, 2, function(x) cor(total_score - x, x))
+round(disc,2)
+```
+
+Step 5. Drawing Diagram
+```{r}
+item_names <- colnames(scored)
+plot_df <- data.frame(
+  item = factor(item_names, levels = item_names),
+  uncorrected = as.vector(item_total_correlation),
+  corrected = disc
+)
+
+library(ggplot2)
+
+ggplot(plot_df, aes(x = item)) +
+  geom_line(aes(y = uncorrected, group = 1, color = "Original"), size = 0.5) +
+  geom_point(aes(y = uncorrected, color = "Original"), size = 1) +
+  geom_line(aes(y = corrected, group = 1, color = "Corrected"), size = 0.5, linetype = "dashed") +
+  geom_point(aes(y = corrected, color = "Corrected"), shape = 15, size = 1) +
+  geom_hline(yintercept = 0.3, linetype = "dotted", color = "gray40") +
+  labs(
+    title = "Item Discrimination Comparison Chart",
+    x = "Item Number",
+    y = "Discrimination (Pearson Correlation)",
+    color = "Type"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Original" = "blue", "Corrected" = "red")) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+Part 2.Item Response Theory (IRT)
+Step 1.Computing the correct rate in Rasch
+```{r}
+delta <- 0.6  # 題目難度
+theta <- 1.0  # 學生能力
+prob <- exp(theta - delta) / (1 + exp(theta - delta))
+prob
+```
+
+Step 2.Draw ICC
+```{r}
+delta <- 1
+theta <- seq(-3, 3, 0.01)
+prob <- exp(theta - delta) / (1 + exp(theta - delta))
+plot(theta, prob, type = "l",
+     xlab = expression(theta),
+     ylab = "Probability of Correct Response",
+     main = paste("ICC for Rasch Model (Difficulty =", delta, ")"))
+```
+
+Step 3.Draw different difficulty of ICC
+```{r}
+delta1 <- -1
+delta2 <- 0
+delta3 <- 1
+prob1 <- exp(theta - delta1) / (1 + exp(theta - delta1))
+prob2 <- exp(theta - delta2) / (1 + exp(theta - delta2))
+prob3 <- exp(theta - delta3) / (1 + exp(theta - delta3))
+
+plot(theta, prob1, type = "l", col = "blue", lwd = 2,
+     xlab = expression(theta), ylab = "Probability of Correct Response",
+     main = "Item Characteristic Curves (ICC)")
+lines(theta, prob2, col = "red", lwd = 2)
+lines(theta, prob3, col = "green", lwd = 2)
+legend("bottomright", legend = c(expression(delta == -1), expression(delta == 0), expression(delta == 1)),
+       col = c("blue", "red", "green"), lwd = 2)
+```
+
+Step 4.Item Characteristic Curve (ICC) of the Two-Parameter Logistic (2PL) IRT Model
+雙參數 IRT 模型 (2PL) 的 ICC
+```{r}
+delta <- 0
+a1 <- 0.5
+a2 <- 1.0
+a3 <- 1.5
+prob1 <- 1 / (1 + exp(-a1 * (theta - delta)))
+prob2 <- 1 / (1 + exp(-a2 * (theta - delta)))
+prob3 <- 1 / (1 + exp(-a3 * (theta - delta)))
+
+plot(theta, prob1, type = "l", col = "blue", lwd = 2,
+     xlab = expression(theta), ylab = "Probability of Correct Response",
+     main = "Item Characteristic Curves with Different Discrimination (a)")
+lines(theta, prob2, col = "red", lwd = 2)
+lines(theta, prob3, col = "darkgreen", lwd = 2)
+legend("bottomright", legend = c(expression(a == 0.5), expression(a == 1.0), expression(a == 1.5)),
+       col = c("blue", "red", "darkgreen"), lwd = 2)
+```
+
+Step 5.Plotting ICCs for 20 Randomly Generated Parameters
+```{r}
+a <- runif(20, 0.5, 1.5)
+b <- runif(20, -2, 2)
+colors <- rainbow(20)
+
+plot(theta, 1 / (1 + exp(-a[1] * (theta - b[1]))), type = "l", col = colors[1], lwd = 2,
+     xlab = expression(theta), ylab = "Probability",
+     main = "ICC Curves for 20 Items")
+for(i in 2:20){
+  prob <- 1 / (1 + exp(-a[i] * (theta - b[i])))
+  lines(theta, prob, col = colors[i], lwd = 2)
+}
+legend("bottomright", legend = paste("Item", 1:20), col = colors, lwd = 2, cex = 0.6)
+```
+
+Step 6.Analyzing data.sim.rasch Using the TAM Package
+使用 TAM 套件分析 data.sim.rasch
+```{r}
+library(TAM)
+data("data.sim.rasch")
+head(data.sim.rasch)
+```
+Step 7.Estimating Rasch Model Parameters Using Joint Maximum Likelihood Estimation (JMLE)
+聯合最大概似估計法 (JMLE) 估計 Rasch 模型參數
+```{r}
+mod1 <- tam.jml(data.sim.rasch)
+summary(mod1)
+mod1$item
+mod1$WLE
+mod1$WLEreliability
+
+summary(mod1$item)
+summary(mod1$WLE)
+hist(mod1$WLE, main = "Distribution of Estimated Abilities (WLE)", xlab = "Ability (WLE)")
+```
+
+Step 8.Plotting the ICC for Each Item (Saved as a PDF)
+繪製每個項目的 ICC (儲存為 PDF)
+```{r}
+pdf("ICCplots.pdf")
+plot(mod1)
+dev.off()
+
+for (i in 1:mod1$nitems){
+  plot(mod1, items = i)
+}
+```
+
+Step 9.Plotting Wright Map
+繪製 Wright Map
+```{r}
+library(WrightMap)
+wrightMap(mod1$WLE, mod1$xsi, item.side = itemClassic, main = "Wright Map (Classical Item Side)")
+wrightMap(mod1$WLE, mod1$xsi, item.side = itemModern, person.side = personHist, main = "Wright Map (Modern Item & Person Side)")
+
+```
+
+Part 3.Application of the Generalized Partial Credit Model (GPCM) to Polytomous Data
+廣義部分計分模型 (GPCM) 在多級評分資料上的應用
+
+Step 1. Loading Packages
+載入套件
+```{r}
+library(psych)
+library(mirt)
+```
+
+Step 2.Loading Big Five Dataset
+載入 Big Five 資料集
+```{r}
+library(mirt)
+library(psych)
+data(bfi)
+head(bfi)
+str(bfi)
+
+# 選取前 25 個題目
+IRTgrm.items <- bfi[, 1:25]
+```
+
+Step 3.Fitting a Unidimensional GPCM Model
+擬合單維度的 GPCM 模型
+```{r}
+IRTgrm3 <- mirt(data = IRTgrm.items, model = 1, itemtype = "graded")
+summary(IRTgrm3)
+coef(IRTgrm3, IRTpars = TRUE)
+```
+
+Step 4.Plotting the Option Characteristic Curves (OCCs) and Item Information Functions for the First and Fifth Items
+繪製第一個和第五個項目的選項特徵曲線和項目資訊函數
+```{r}
+itemplot(IRTgrm3, 1, type = "trace")
+itemplot(IRTgrm3, 1, type = "info")
+itemplot(IRTgrm3, 5, type = "trace")
+itemplot(IRTgrm3, 5, type = "info")
+```
+
+Step 5.Plotting the Option Characteristic Curves and Item Information Functions for All Items
+繪製所有項目的選項特徵曲線和項目資訊函數
+```{r}
+plot(IRTgrm3, type = "trace", main = "Item Trace Lines (GPCM)")
+plot(IRTgrm3, type = "info", main = "Item Information Functions (GPCM)")
+```
+
